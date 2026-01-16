@@ -1,0 +1,627 @@
+---
+title: "Authentification of H. forskali"
+author: "Frank DAVID"
+date: '2026-01-15'
+output:
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Sys.setlocale("LC_TIME", "C")
+```
+
+### R Markdown
+
+This R Markdown document is made to support the findings of the paper "A screening of tools to differentiate wild vs. farmed sea cucumbers in multi-trophic aquaculture systems with no artificial feed inputs" by David et al. (2026). 
+
+
+## Preparing the toolbox
+
+Let's begin by loading the libraries that we will require to run the analyses.
+
+```{r echo=TRUE, message=FALSE}
+#library(agricolae)
+#library(vegan)
+library(ade4)
+library(factoextra)
+library(easyCODA)
+library(pls)
+library(rpart)
+
+```
+
+
+## Loading the data
+We load fatty acids, stable isotopes, amino acids and sterols data from the GitHub server.
+
+For details on line and column headings please check the readme file.
+
+```{r}
+
+FA <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/FA_screening.csv", sep=";", header=T)
+SI <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/SI_screening.csv", sep=";", header=T)
+AA <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/AA_screening.csv", sep=";", header=T)
+St <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/St_screening.csv", sep=";", header=T)
+
+```
+
+## Fatty acids
+
+```{r}
+allFA=FA[,-c(1:7, which(colnames(FA)=="C23.0"))]
+rownames(allFA)=FA[,1]
+allFA[is.na(allFA)]=0
+
+## Percentage table
+prct=allFA/rowSums(allFA)*100
+
+## Concentrations table 
+conc=allFA/FA[,which(colnames(FA)=="C23.0")]*FA[,which(colnames(FA)=="StdC23")]/FA[,which(colnames(FA)=="SplMass")]
+conctot=rowSums(conc)
+
+# Let's define categories of FA
+
+brFA=rowSums(prct[, c(which(colnames(prct)=="C15.0iso"), which(colnames(prct)=="C15.0anteiso"), which(colnames(prct)=="C16.0iso"))])
+SFA=rowSums(prct[, c(which(colnames(prct)=="C14.0"), which(colnames(prct)=="C15.0"), which(colnames(prct)=="C16.0"), which(colnames(prct)=="C18.0"), which(colnames(prct)=="C19.0"),which(colnames(prct)=="C20.0"), which(colnames(prct)=="C21.0"), which(colnames(prct)=="C22.0"))])
+PUFA=rowSums(prct[, c(which(colnames(prct)=="C18.2w6"), which(colnames(prct)=="C18.3w3"), which(colnames(prct)=="C18.4w3"), which(colnames(prct)=="C20.2w6"), which(colnames(prct)=="C20.4w6"), which(colnames(prct)=="C20.5w3"), which(colnames(prct)=="C22.5w6"), which(colnames(prct)=="C22.6w3"))])
+HUFA=rowSums(prct[, c(which(colnames(prct)=="C20.4w6"), which(colnames(prct)=="C20.3w6"), which(colnames(prct)=="C20.5w3"), which(colnames(prct)=="C22.5w6"), which(colnames(prct)=="C22.6w3"))])
+w3=rowSums(prct[, c(which(colnames(prct)=="C18.3w3"), which(colnames(prct)=="C18.4w3"), which(colnames(prct)=="C20.5w3"), which(colnames(prct)=="C22.6w3"))])
+w6=rowSums(prct[, c(which(colnames(prct)=="C18.2w6"), which(colnames(prct)=="C20.3w6"), which(colnames(prct)=="C20.2w6"), which(colnames(prct)=="C20.4w6"), which(colnames(prct)=="C22.5w6"))])
+LCMUFA=rowSums(prct[, c(which(colnames(prct)=="C20.1w9"), which(colnames(prct)=="C20.1w7"), which(colnames(prct)=="C22.1w11"), which(colnames(prct)=="C22.1w9"), which(colnames(prct)=="C23.1w9"), which(colnames(prct)=="C24.1w9"))])
+MUFA=rowSums(prct[, c(which(colnames(prct)=="C16.1w7"), which(colnames(prct)=="C18.1w9"), which(colnames(prct)=="C18.1w7"), which(colnames(prct)=="C20.1w9"), which(colnames(prct)=="C20.1w7"), which(colnames(prct)=="C22.1w11"), which(colnames(prct)=="C22.1w9"), which(colnames(prct)=="C23.1w9"), which(colnames(prct)=="C24.1w9"))])
+
+rowSums(cbind(brFA, SFA, PUFA, MUFA))
+
+# Let's edit a summary table
+
+summaryFA=data.frame(M=aggregate(cbind(prct, brFA, SFA, MUFA, LCMUFA, PUFA, HUFA, w3, w6, conctot) , by=list(FA$SplBatch), mean), SD=aggregate(cbind(prct, brFA, SFA, MUFA, LCMUFA, PUFA, HUFA, w3, w6, conctot), by=list(FA$SplBatch), sd), LE=aggregate(cbind(prct, brFA, SFA, MUFA, LCMUFA, PUFA, HUFA, w3, w6, conctot), by=list(FA$SplBatch), length))
+
+#write.table(t(summaryFA), file="meansFA.txt")
+
+```
+
+
+### Graphical representation using PCA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+
+#svg(file="Fig2A.svg", width=7.5, height=6)
+
+par(las=1, mar=c(2,2,1,2), bty="n", mfrow=c(1,1))
+
+acp=dudi.pca(prct, scannf = FALSE, nf = 2)
+varPCA=get_pca_var(acp)
+varPCAhigh=which(varPCA$contrib[,1]>100/nrow(varPCA$contrib)*1.5|varPCA$contrib[,2]>100/nrow(varPCA$contrib)*1.5)
+varPCAlow=which(varPCA$contrib[,1]<100/nrow(varPCA$contrib)*1.5&varPCA$contrib[,2]<100/nrow(varPCA$contrib)*1.5)
+
+plot(acp$li[,c(1,2)], acp$co[,c(1,2)], type="n", ann=F, bty="n", axes=F, ylim=c(-7, 7), xlim=c(-10, 8))
+axis(1, pos=0, at=c(seq(-10, 8, 2)[-6]), labels=F, tck=0.01, padj=-4)
+axis(2, pos=0, at=c(seq(-6, 6, 2)[-4]), labels=F, tck=0.01, hadj=0.1)
+
+title(xlab=paste("PC1 (", round((acp$eig/sum(acp$eig)*100)[1], 1), "%)", sep=""), line=0)
+title(ylab=paste("PC2 (", round((acp$eig/sum(acp$eig)*100)[2], 1), "%)", sep=""), line=0)
+
+arrows(x0=0, y0=0, x1=acp$co[,1][varPCAhigh]*8, y1=acp$co[,2][varPCAhigh]*8, length=0.1, col="grey40", lty=5)
+text(acp$co[varPCAhigh,]*8.5, labels=colnames(prct)[varPCAhigh], col="grey40")
+
+arrows(x0=0, y0=0, x1=acp$co[,1][varPCAlow]*8, y1=acp$co[,2][varPCAlow]*8, length=0.1, col="grey90", lty=5)
+text(acp$co[varPCAlow,]*8.5, labels=colnames(prct)[varPCAlow], col="grey90")
+
+a=ordihull(acp$li, groups=paste(FA$SplBatch, FA$Group), lty=4, label=F, display=c("sites"), draw="lines")
+
+points(acp$li[, 1], acp$li[, 2], pch=23, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(FA$Group)], cex=1.5)
+
+a=ordihull(acp$li, groups=paste(FA$SplBatch, FA$Group), border=NA, label=F, display=c("sites"), draw="polygon", col="white", alpha=50)
+
+centroid=t(summary(a))
+var=data.frame(do.call("rbind", strsplit(rownames(centroid), " ", fixed=F)))  
+
+points(centroid, pch=21, cex=3.5, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(var[,2])])
+text(centroid, labels=var[,1], cex=1.2, font=2, col=c("white", "black", "black")[as.factor(var[,2])])
+
+legend("topright" , legend=c("Wild", "Captured and caged", "Born in captivity"), bty="n", pch=21, pt.bg=c("white", "grey80", "grey20"), col="grey40", pt.cex=2, cex=1)
+
+legend("bottomleft", legend=paste("N =", length(levels(as.factor(FA$SplBatch))),"; n =", nrow(acp$li)), bty="n", pt.cex=2)
+
+legend("topleft", legend=expression(bold("A")), bty="n", cex=3, inset=c(-0.1,-0.05))
+
+
+#dev.off()
+  
+```
+
+
+### Graphical representation using PLSDA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+
+# Transforming group into indicating variable
+var.ind <- DUMMY(paste(FA$Group, sep=""))
+fac <- as.factor(paste(FA$Group, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prct)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+attributes(PLSDA)
+PLSDA$scores
+att=attributes(loadings(PLSDA))$explvar
+
+# Drawing
+
+#svg(file="Fig2B_FA.PLSDA.svg", width=7.5, height=6)
+
+par(las=1, mar=c(2,2,1,2), bty="n", mfrow=c(1,1))
+
+plot(PLSDA$scores, type="n", ann=F, bty="n", axes=F, xlim=c(-5, 8), ylim=c(-7, 6))
+
+axis(1, pos=0, at=c(seq(-5, 8, 2)), labels=F, tck=0.01)
+axis(2, pos=0, at=c(seq(-7, 6, 2)[-5]), labels=F, tck=0.01)
+points(PLSDA$scores[, 1], PLSDA$scores[, 2], pch=21, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(FA$Group)], cex=1.5)
+
+title(xlab=paste("Axis 1 (", round(att[1], 1), "%)", sep=""), line=0)
+title(ylab=paste("Axis 2 (", round(att[2], 1), "%)", sep=""), line=0)
+
+arrows(x0=0, y0=0, x1=loadings(PLSDA)[,1]*15, y1=loadings(PLSDA)[,2]*15, length=0.1, col="grey40", lty=5)
+
+  
+a=ordihull(PLSDA$scores, groups=paste(FA$SplBatch, FA$Group), lty=4, label=F, display=c("sites"), draw="polygon", col="white")
+  
+centroid=t(summary(a))
+var=data.frame(do.call("rbind", strsplit(rownames(centroid), " ", fixed=F)))  
+
+points(centroid, pch=21, cex=3, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(var[,2])])
+text(centroid, labels=var[,1], cex=1, font=2, col=c("white", "black", "black")[as.factor(var[,2])])
+
+text(loadings(PLSDA)*16, labels=rownames(loadings(PLSDA)), col="grey40")
+  
+legend("topright" , legend=c("Wild", "Captured and caged", "Born in captivity"), bty="n", pch=21, pt.bg=c("white", "grey80", "grey20"), col="grey40", pt.cex=2, cex=1)
+legend("bottomleft", legend=paste("N =", length(levels(as.factor(FA$SplBatch))),"; n =", nrow(PLSDA$scores)), bty="n", pt.cex=2)
+legend("topleft", legend=expression(bold("B")), bty="n", cex=3, inset=c(-0.1,-0.05))
+
+#dev.off()
+
+  
+```
+
+
+
+### Regression tree
+
+```{r}
+
+# First version using all FA
+xnam=paste0("prct$", colnames(prct))
+fmla=as.formula(paste("FA$Origin ~ ", paste(xnam, collapse= "+")))
+
+tree=rpart(fmla)
+
+plot(tree)
+text(tree)
+
+table(predict(tree, type="class"), FA$Origin)
+
+# Second version using ratios
+newTab=round(rowSums(prct[, c(which(colnames(prct)=="C20.1w9"), which(colnames(prct)=="C22.1w9"), which(colnames(prct)=="C24.1w9"))])/prct[, -c(which(colnames(prct)=="C20.1w9"), which(colnames(prct)=="C22.1w9"), which(colnames(prct)=="C24.1w9"))], 2)
+
+xnam=paste0("newTab$", colnames(newTab))
+fmla=as.formula(paste("FA$Origin ~ ", paste(xnam, collapse= "+")))
+
+newTree=rpart(fmla)
+
+plot(newTree)
+text(newTree)
+
+table(predict(newTree, type="class"), FA$Origin)
+
+#Let's see which samples are wrongly classified
+rownames(allFA[which(predict(newTree, type="class")!=FA$Origin),])
+
+```
+
+### Regression tree
+
+```{r}
+
+# Let's see seasonal changes in diatoms biomarkers at the Glénan Islands site
+
+GL=prct[which(substring(FA$Id, 7,8)=="GL"),]
+date=as.POSIXct(FA[which(substring(FA$Id, 7,8)=="GL"),"SamplingDate"], format="%d/%m/%Y")
+lvldate=as.POSIXct(levels(as.factor(date)), format="%Y-%m-%d")
+
+pdf(file="FigS1.pdf", width=5, height=9)
+
+par(las=1, mar=c(5,5,1,2), mfrow=c(3,1))
+
+var=GL[, "C14.0"]
+plot(date, var, type="n", xaxt="n", xlab="", ylab="", bty="n")
+
+mtext(text="Proportion of FA 14:0 (%)", side=2, las=3, line=2.5, cex=1)
+axis.POSIXct(side=1, x=date, at=date, format ="%b %y", labels=T, las=2)
+
+arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldate, y1=tapply(var, date, mean) - tapply(var, date, sd), length=0.03, angle=90, code=3)
+
+lines(lvldate, tapply(var, date, mean))
+points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2)
+
+var=GL[, "C16.1w7"]
+plot(date, var, type="n", xaxt="n", xlab="", ylab="", bty="n")
+
+mtext(text="Proportion of FA 16:1w7 (%)", side=2, las=3, line=2.5, cex=1)
+axis.POSIXct(side=1, x=date, at=date, format ="%b %y", labels=T, las=2)
+
+arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldate, y1=tapply(var, date, mean) - tapply(var, date, sd), length=0.03, angle=90, code=3)
+
+lines(lvldate, tapply(var, date, mean))
+points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2)
+
+var=rowSums(GL[, c(which(colnames(GL)=="C15.0iso"), which(colnames(GL)=="C15.0anteiso"), which(colnames(GL)=="C16.0iso"))])
+plot(date, var, type="n", xaxt="n", xlab="", ylab="", bty="n")
+
+mtext(text="Proportion of BrFA (%)", side=2, las=3, line=2.5, cex=1)
+axis.POSIXct(side=1, x=date, at=date, format ="%b %y", labels=T, las=2)
+
+arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldate, y1=tapply(var, date, mean) - tapply(var, date, sd), length=0.03, angle=90, code=3)
+
+lines(lvldate, tapply(var, date, mean))
+points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2)
+
+dev.off()
+
+
+```
+
+
+
+## Stable isotopes
+### Graphical representation (biplot 13C-15N)
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+
+#cairo_pdf(file="Fig3_SI.Biplot.pdf", width=7.5, height=6)
+
+par(las=1, mar=c(5,5,1,2), bty="n", mfrow=c(1,1))
+
+plot(SI$d13C, SI$d15N, bty="n", xlim=c(-20,-12), ylim=c(6, 16), xlab=expression(paste(delta^13, "C (\u2030)")), ylab=expression(paste(delta^15, "N (\u2030)", )), type="n")
+
+axis(1, pos=0, at=c(seq(-20, 12, 4)), labels=F, tck=0.01)
+axis(2, pos=0, at=c(seq(6, 16, 2)), labels=F, tck=0.01)
+points(SI$d13C, SI$d15N, pch=21, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(SI$Group)], cex=1.5)
+  
+a=ordihull(cbind(SI$d13C, SI$d15N), groups=paste(SI$SplBatch, SI$Group), lty=4, label=F, display=c("sites"), draw="polygon", col="white")
+  
+centroid=t(summary(a))
+var=data.frame(do.call("rbind", strsplit(rownames(centroid), " ", fixed=F)))  
+
+points(centroid, pch=21, cex=3, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(var[,2])])
+text(centroid, labels=var[,1], cex=1, font=2, col=c("white", "black", "black")[as.factor(var[,2])])
+
+legend("topleft" , legend=c("Wild", "Captured and caged", "Born in captivity"), bty="n", pch=21, pt.bg=c("white", "grey80", "grey20"), col="grey40", pt.cex=2, cex=1, inset=c(0.02, 0))
+legend("bottomleft", legend=paste("N =", length(levels(as.factor(SI$SplBatch))),"; n =", nrow(SI)), bty="n", pt.cex=2)
+
+#dev.off()
+  
+```
+
+## Amino acids
+
+```{r}
+allAA=AA[,-c(1:5)]
+rownames(allAA)=AA[,1]
+
+# Let's edit a summary table
+
+summaryAA=data.frame(M=aggregate(allAA , by=list(AA$SplBatch), mean), SD=aggregate(allAA, by=list(AA$SplBatch), sd), LE=aggregate(allAA, by=list(AA$SplBatch), length))
+
+#write.table(t(summaryAA), file="meansAA.txt")
+
+```
+
+### Graphical representation using PCA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+
+#svg(file="Fig4A.svg", width=7.5, height=6)
+
+par(las=1, mar=c(2,2,1,2), bty="n", mfrow=c(1,1))
+
+acp=dudi.pca(allAA, scannf = FALSE, nf = 2)
+varPCA=get_pca_var(acp)
+varPCAhigh=which(varPCA$contrib[,1]>100/nrow(varPCA$contrib)*1.2|varPCA$contrib[,2]>100/nrow(varPCA$contrib)*1.2)
+varPCAlow=which(varPCA$contrib[,1]<100/nrow(varPCA$contrib)*1.2&varPCA$contrib[,2]<100/nrow(varPCA$contrib)*1.2)
+
+plot(acp$li[,c(1,2)], acp$co[,c(1,2)], type="n", ann=F, bty="n", axes=F, ylim=c(-5, 4), xlim=c(-6, 6))
+axis(1, pos=0, at=c(seq(-6, 6, 2)[-4]), labels=F, tck=0.01, padj=-4)
+axis(2, pos=0, at=c(seq(-5, 4, 2)), labels=F, tck=0.01, hadj=0.1)
+
+title(xlab=paste("PC1 (", round((acp$eig/sum(acp$eig)*100)[1], 1), "%)", sep=""), line=0)
+title(ylab=paste("PC2 (", round((acp$eig/sum(acp$eig)*100)[2], 1), "%)", sep=""), line=0)
+
+arrows(x0=0, y0=0, x1=acp$co[,1][varPCAhigh]*5, y1=acp$co[,2][varPCAhigh]*5, length=0.1, col="grey40", lty=5)
+text(acp$co[varPCAhigh,]*5.5, labels=colnames(allAA)[varPCAhigh], col="grey40")
+
+arrows(x0=0, y0=0, x1=acp$co[,1][varPCAlow]*5, y1=acp$co[,2][varPCAlow]*5, length=0.1, col="grey90", lty=5)
+text(acp$co[varPCAlow,]*5.5, labels=colnames(allAA)[varPCAlow], col="grey90")
+
+a=ordihull(acp$li, groups=paste(AA$SplBatch, AA$Group), lty=4, label=F, display=c("sites"), draw="lines")
+
+points(acp$li[, 1], acp$li[, 2], pch=23, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(AA$Group)], cex=1.5)
+
+a=ordihull(acp$li, groups=paste(AA$SplBatch, AA$Group), border=NA, label=F, display=c("sites"), draw="polygon", col="white", alpha=50)
+
+centroid=t(summary(a))
+var=data.frame(do.call("rbind", strsplit(rownames(centroid), " ", fixed=F)))  
+
+points(centroid, pch=21, cex=3.5, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(var[,2])])
+text(centroid, labels=var[,1], cex=1.2, font=2, col=c("white", "black", "black")[as.factor(var[,2])])
+
+legend("topright" , legend=c("Wild", "Captured and caged", "Born in captivity"), bty="n", pch=21, pt.bg=c("white", "grey80", "grey20"), col="grey40", pt.cex=2, cex=1)
+
+legend("bottomleft", legend=paste("N =", length(levels(as.factor(AA$SplBatch))),"; n =", nrow(acp$li)), bty="n", pt.cex=2)
+legend("topleft", legend=expression(bold("A")), bty="n", cex=3, inset=c(-0.1,-0.05))
+
+
+#dev.off()
+  
+```
+
+
+### Graphical representation using PLSDA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+
+# Transforming group into indicating variable
+var.ind <- DUMMY(paste(AA$Group, sep=""))
+fac <- as.factor(paste(AA$Group, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(allAA)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+attributes(PLSDA)
+PLSDA$coefficients
+att=attributes(loadings(PLSDA))$explvar
+
+# Drawing
+
+#svg(file="Fig4B_AA.PLSDAbis.svg", width=7.5, height=6)
+
+par(las=1, mar=c(2,2,1,2), bty="n", mfrow=c(1,1))
+
+plot(PLSDA$scores, type="n", ann=F, bty="n", axes=F, xlim=c(-6, 6), ylim=c(-2, 3))
+  
+axis(1, pos=0, at=c(seq(-6, 6, 2)[-4]), labels=F, tck=0.01)
+axis(2, pos=0, at=c(seq(-2, 3, 2)), labels=F, tck=0.01)
+points(PLSDA$scores[, 1], PLSDA$scores[, 2], pch=21, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(AA$Group)], cex=1.5)
+
+title(xlab=paste("Axis 1 (", round(att[1], 1), "%)", sep=""), line=0)
+title(ylab=paste("Axis 2 (", round(att[2], 1), "%)", sep=""), line=0)
+
+arrows(x0=0, y0=0, x1=loadings(PLSDA)[,1]*3.5, y1=loadings(PLSDA)[,2]*3.5, length=0.1, col="grey40", lty=5)
+text(loadings(PLSDA)*3.6, labels=rownames(loadings(PLSDA)), col="grey40")
+
+  
+a=ordihull(PLSDA$scores, groups=paste(AA$SplBatch, AA$Group), lty=4, label=F, display=c("sites"), draw="polygon", col="white")
+  
+centroid=t(summary(a))
+var=data.frame(do.call("rbind", strsplit(rownames(centroid), " ", fixed=F)))  
+
+
+points(centroid, pch=21, cex=3, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(var[,2])])
+text(centroid, labels=var[,1], cex=1, font=2, col=c("white", "black", "black")[as.factor(var[,2])])
+  
+  
+legend("topright" , legend=c("Wild", "Captured and caged", "Born in captivity"), bty="n", pch=21, pt.bg=c("white", "grey80", "grey20"), col="grey40", pt.cex=2, cex=1)
+legend("bottomleft", legend=paste("N =", length(levels(as.factor(AA$SplBatch))),"; n =", nrow(PLSDA$scores)), bty="n", pt.cex=2)
+legend("topleft", legend=expression(bold("B")), bty="n", cex=3, inset=c(-0.1,-0.05))
+
+
+#dev.off()
+
+  
+```
+
+### Regression tree
+
+```{r}
+
+# First version using all AA
+xnam=paste0("allAA$", colnames(allAA))
+fmla=as.formula(paste("AA$Origin ~ ", paste(xnam, collapse= "+")))
+
+tree=rpart(fmla)
+
+plot(tree)
+text(tree)
+
+table(predict(tree, type="class"), AA$Origin)
+
+# Second version using ratios
+newTab=round(allAA[, which(colnames(allAA)=="Asx")]/allAA[, -which(colnames(allAA)=="Asx")], 2)
+
+xnam=paste0("newTab$", colnames(newTab))
+fmla=as.formula(paste("AA$Origin ~ ", paste(xnam, collapse= "+")))
+
+newTree=rpart(fmla)
+
+plot(newTree)
+text(newTree)
+
+table(predict(newTree, type="class"), AA$Origin)
+
+#Let's see which samples are wrongly classified
+rownames(allAA[which(predict(newTree, type="class")!=AA$Origin),])
+
+```
+
+## Sterols
+
+```{r}
+allSt=St[,-c(1:6, which(colnames(St)=="Stigmasterol"))]
+rownames(allSt)=St[,1]
+allSt[is.na(allSt)]=0
+
+## Percentage table
+prctSt=allSt/rowSums(allSt)*100
+
+## Concentrations table 
+concSt=allSt/St[,which(colnames(St)=="Stigmasterol")]*St[,which(colnames(St)=="StdStig")]/St[,which(colnames(St)=="SplMass")]
+conctotSt=rowSums(concSt)
+
+# Let's edit a summary table
+
+summarySt=data.frame(M=aggregate(cbind(prctSt, conctotSt) , by=list(St$SplBatch), mean), SD=aggregate(cbind(prctSt, conctotSt), by=list(St$SplBatch), sd), LE=aggregate(cbind(prctSt, conctotSt), by=list(St$SplBatch), length))
+
+#write.table(t(summarySt), file="meansSt.txt")
+
+```
+
+### Graphical representation using PCA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+
+#svg(file="Fig5A_PCA.svg", width=7.5, height=6)
+
+par(las=1, mar=c(2,2,1,2), bty="n", mfrow=c(1,1))
+
+acp=dudi.pca(sqrt(prctSt), scannf = FALSE, nf = 2, scale=T)
+varPCA=get_pca_var(acp)
+varPCAhigh=which(varPCA$contrib[,1]>100/nrow(varPCA$contrib)*1.2|varPCA$contrib[,2]>100/nrow(varPCA$contrib)*1.2)
+varPCAlow=which(varPCA$contrib[,1]<100/nrow(varPCA$contrib)*1.2&varPCA$contrib[,2]<100/nrow(varPCA$contrib)*1.2)
+
+plot(acp$li[,c(1,2)], acp$co[,c(1,2)], type="n", ann=F, bty="n", axes=F, xlim=c(-6, 8), ylim=c(-6, 5))
+axis(1, pos=0, at=c(seq(-6, 8, 2)[-4]), labels=F, tck=0.01, padj=-4)
+axis(2, pos=0, at=c(seq(-6, 5, 2)[-4]), labels=F, tck=0.01, hadj=0.1)
+
+title(xlab=paste("PC1 (", round((acp$eig/sum(acp$eig)*100)[1], 1), "%)", sep=""), line=0)
+title(ylab=paste("PC2 (", round((acp$eig/sum(acp$eig)*100)[2], 1), "%)", sep=""), line=0)
+
+arrows(x0=0, y0=0, x1=acp$co[,1][varPCAhigh]*4.5, y1=acp$co[,2][varPCAhigh]*4.5, length=0.1, col="grey40", lty=5)
+text(acp$co[varPCAhigh,]*5, labels=colnames(prctSt)[varPCAhigh], col="grey40")
+
+arrows(x0=0, y0=0, x1=acp$co[,1][varPCAlow]*5, y1=acp$co[,2][varPCAlow]*5, length=0.1, col="grey90", lty=5)
+text(acp$co[varPCAlow,]*5.5, labels=colnames(prctSt)[varPCAlow], col="grey90")
+
+a=ordihull(acp$li, groups=paste(St$SplBatch, St$Group), lty=4, label=F, display=c("sites"), draw="lines")
+
+points(acp$li[, 1], acp$li[, 2], pch=23, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(St$Group)], cex=1.5)
+
+a=ordihull(acp$li, groups=paste(St$SplBatch, St$Group), border=NA, label=F, display=c("sites"), draw="polygon", col="white", alpha=50)
+
+centroid=t(summary(a))
+var=data.frame(do.call("rbind", strsplit(rownames(centroid), " ", fixed=F)))  
+
+points(centroid, pch=21, cex=3.5, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(var[,2])])
+text(centroid, labels=var[,1], cex=1.2, font=2, col=c("white", "black", "black")[as.factor(var[,2])])
+
+legend("topright" , legend=c("Wild", "Captured and caged", "Born in captivity"), bty="n", pch=21, pt.bg=c("white", "grey80", "grey20"), col="grey40", pt.cex=2, cex=1)
+
+legend("bottomleft", legend=paste("N =", length(levels(as.factor(St$SplBatch))),"; n =", nrow(acp$li)), bty="n", pt.cex=2)
+legend("topleft", legend=expression(bold("A")), bty="n", cex=3, inset=c(-0.1,-0.05))
+
+
+#dev.off()
+  
+```
+
+
+### Graphical representation using PLSDA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+
+# Transforming group into indicating variable
+var.ind <- DUMMY(paste(St$Group, sep=""))
+fac <- as.factor(paste(St$Group, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prctSt)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+attributes(PLSDA)
+PLSDA$coefficients
+att=attributes(loadings(PLSDA))$explvar
+
+
+# Drawing
+
+#svg(file="Fig5B_PLSDA.svg", width=7.5, height=6)
+
+par(las=1, mar=c(2,2,1,2), bty="n", mfrow=c(1,1))
+
+plot(PLSDA$scores, type="n", ann=F, bty="n", axes=F, , xlim=c(-4, 7), ylim=c(-4, 4))
+
+axis(1, pos=0, at=c(seq(-4, 7, 2)[-3]), labels=F, tck=0.01)
+axis(2, pos=0, at=c(seq(-4, 4, 2)[-3]), labels=F, tck=0.01)
+points(PLSDA$scores[, 1], PLSDA$scores[, 2], pch=21, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(St$Group)], cex=1.5)
+  
+title(xlab=paste("Axis 1 (", round(att[1], 1), "%)", sep=""), line=0)
+title(ylab=paste("Axis 2 (", round(att[2], 1), "%)", sep=""), line=0)
+
+arrows(x0=0, y0=0, x1=loadings(PLSDA)[,1]*7, y1=loadings(PLSDA)[,2]*7, length=0.1, col="grey40", lty=5)
+
+text(loadings(PLSDA)*7, labels=rownames(loadings(PLSDA)), col="grey40")
+
+a=ordihull(PLSDA$scores, groups=paste(St$SplBatch, St$Group), lty=4, label=F, display=c("sites"), draw="polygon", col="white")
+  
+centroid=t(summary(a))
+var=data.frame(do.call("rbind", strsplit(rownames(centroid), " ", fixed=F)))  
+
+points(centroid, pch=21, cex=3, col="grey40", bg=c("grey20", "grey80", "white")[as.factor(var[,2])])
+text(centroid, labels=var[,1], cex=1, font=2, col=c("white", "black", "black")[as.factor(var[,2])])
+  
+  
+legend("topright" , legend=c("Wild", "Captured and caged", "Born in captivity"), bty="n", pch=21, pt.bg=c("white", "grey80", "grey20"), col="grey40", pt.cex=2, cex=1)
+legend("bottomleft", legend=paste("N =", length(levels(as.factor(St$SplBatch))),"; n =", nrow(PLSDA$scores)), bty="n", pt.cex=2)
+legend("topleft", legend=expression(bold("B")), bty="n", cex=3, inset=c(-0.1,-0.05))
+
+
+#dev.off()
+
+  
+```
+
+### Regression tree
+
+```{r}
+
+# First version using all sterols
+xnam=paste0("prctSt$", colnames(prctSt))
+fmla=as.formula(paste("St$Origin ~ ", paste(xnam, collapse= "+")))
+
+tree=rpart(fmla)
+
+plot(tree)
+text(tree)
+
+table(predict(tree, type="class"), St$Origin)
+
+# Second version using ratios
+newTab=round(prctSt[, which(colnames(prctSt)=="C29H46")]/prctSt[, -which(colnames(prctSt)=="C29H46")], 2)
+
+xnam=paste0("newTab$", colnames(newTab))
+fmla=as.formula(paste("St$Origin ~ ", paste(xnam, collapse= "+")))
+
+newTree=rpart(fmla)
+
+plot(newTree)
+text(newTree)
+
+table(predict(newTree, type="class"), St$Origin)
+
+#Let's see which samples are wrongly classified
+rownames(allSt[which(predict(newTree, type="class")!=St$Origin),])
+
+```
+
+
+
+
+
