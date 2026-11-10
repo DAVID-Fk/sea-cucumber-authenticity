@@ -23,12 +23,13 @@ Let's begin by loading the libraries that we will require to run the analyses.
 
 ```{r echo=TRUE, message=FALSE}
 #library(agricolae)
-#library(vegan)
+library(vegan)
 library(ade4)
 library(factoextra)
 library(easyCODA)
 library(pls)
 library(rpart)
+library(ropls)
 
 ```
 
@@ -41,16 +42,18 @@ For details on line and column headings please check the readme file.
 ```{r}
 
 FA <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/FA_screening.csv", sep=";", header=T)
+FA <- read.csv("FA_screening.csv", sep=";", header=T)
 SI <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/SI_screening.csv", sep=";", header=T)
 AA <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/AA_screening.csv", sep=";", header=T)
+AA <- read.csv("AA_screening.csv", sep=";", header=T)
 St <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/St_screening.csv", sep=";", header=T)
-
+St <- read.csv("St_screening.csv", sep=";", header=T)
 ```
 
 ## Fatty acids
 
 ```{r}
-allFA=FA[,-c(1:7, which(colnames(FA)=="C23.0"))]
+allFA=FA[,-c(1:8, which(colnames(FA)=="C23.0"))]
 rownames(allFA)=FA[,1]
 allFA[is.na(allFA)]=0
 
@@ -133,9 +136,9 @@ legend("topleft", legend=expression(bold("A")), bty="n", cex=3, inset=c(-0.1,-0.
 ```
 
 
-### Graphical representation using PLSDA
+### Building the PLSDA
 
-```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+```{r}
 
 # Transforming group into indicating variable
 var.ind <- DUMMY(paste(FA$Group, sep=""))
@@ -145,13 +148,60 @@ fac <- as.factor(paste(FA$Group, sep=""))
 DATA.M <- as.matrix(prct)
 
 # Canonical Powered Partial least squared (PLS) regression
-PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+PLSDA <- cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
 summary (PLSDA)
 attributes(PLSDA)
 PLSDA$scores
 att=attributes(loadings(PLSDA))$explvar
 
-# Drawing
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, FA$Group, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+mod
+
+# Let's see which of the three groups are significantly different based on Euclidean distances between PLSDA coordinates
+
+perm <- adonis2(prct~FA$Group, method="euclidean")
+
+grp   <- factor(FA$Group)
+pairs <- combn(levels(grp), 2, simplify = FALSE)
+
+res <- do.call(rbind, lapply(pairs, function(p) {
+  idx <- grp %in% p
+  d   <- data.frame(g = droplevels(grp[idx]))
+  a   <- adonis2(prct[idx, ] ~ g, data = d, method = "euclidean",
+                 permutations = 9999)
+  data.frame(pair = paste(p, collapse = " vs "),
+             n    = sum(idx),
+             F    = a$F[1],
+             R2   = a$R2[1],
+             p    = a$`Pr(>F)`[1])
+}))
+res$p_adj <- p.adjust(res$p, method = "holm")   # ou "BH"
+res
+
+# Building a PLSDA model with only two modalities
+var.ind <- DUMMY(paste(FA$Origin, sep=""))
+fac <- as.factor(paste(FA$Origin, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prct)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA <- cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+attributes(PLSDA)
+PLSDA$scores
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, FA$Origin, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+mod
+
+```
+
+### Graphical representation using PLSDA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
 
 #svg(file="Fig2B_FA.PLSDA.svg", width=7.5, height=6)
 
@@ -184,7 +234,6 @@ legend("bottomleft", legend=paste("N =", length(levels(as.factor(FA$SplBatch))),
 legend("topleft", legend=expression(bold("B")), bty="n", cex=3, inset=c(-0.1,-0.05))
 
 #dev.off()
-
   
 ```
 
@@ -221,11 +270,18 @@ table(predict(newTree, type="class"), FA$Origin)
 #Let's see which samples are wrongly classified
 rownames(allFA[which(predict(newTree, type="class")!=FA$Origin),])
 
+#Cross validation accuracy rate
+AccuracyFA=1-newTree$cptable[3, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1]
+print(AccuracyFA)
+
+#Model validation
+printcp(newTree) / plotcp(newTree)
+
 ```
 
-### Regression tree
+### Seasonal dynamics
 
-```{r}
+```{r echo=FALSE, fig.width=9, fig.height=5, fig.align="center"}
 
 # Let's see seasonal changes in diatoms biomarkers at the Glénan Islands site
 
@@ -233,7 +289,7 @@ GL=prct[which(substring(FA$Id, 7,8)=="GL"),]
 date=as.POSIXct(FA[which(substring(FA$Id, 7,8)=="GL"),"SamplingDate"], format="%d/%m/%Y")
 lvldate=as.POSIXct(levels(as.factor(date)), format="%Y-%m-%d")
 
-pdf(file="FigS1.pdf", width=5, height=9)
+#pdf(file="FigS2.pdf", width=5, height=9)
 
 par(las=1, mar=c(5,5,1,2), mfrow=c(3,1))
 
@@ -250,8 +306,7 @@ points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2
 
 var=GL[, "C16.1w7"]
 plot(date, var, type="n", xaxt="n", xlab="", ylab="", bty="n")
-
-mtext(text="Proportion of FA 16:1w7 (%)", side=2, las=3, line=2.5, cex=1)
+mtext(text=expression(paste("Proportion of FA 16:1", omega, "7 (%)")), side=2, las=3, line=2.5, cex=1)
 axis.POSIXct(side=1, x=date, at=date, format ="%b %y", labels=T, las=2)
 
 arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldate, y1=tapply(var, date, mean) - tapply(var, date, sd), length=0.03, angle=90, code=3)
@@ -270,11 +325,40 @@ arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldat
 lines(lvldate, tapply(var, date, mean))
 points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2)
 
-dev.off()
+#dev.off()
 
 
 ```
 
+### Relationship between FA indicators and wild individuals size
+
+```{r echo=FALSE, fig.width=13, fig.height=5, fig.align="center"}
+
+#pdf(file="FigS1a.pdf", width=13, height=5)
+
+par(las=1, mar=c(5,6,1,2), mfrow=c(1,2))
+
+ind204w6=newTab$C20.4w6
+boxplot(ind204w6~FA$Group, ylim=c(0,1.7), names=c("Born in captivity", "Captured and caged", "Wild"), xlab="", ylab=expression(frac(paste(Sigma, " (20:1", omega, 9 + 22:1, omega, 9 + "24:1", omega, "9)"), paste(20:4, omega, 6))), frame.plot=F, col=c("grey20", "grey80", "white"), border="grey40")
+
+plot(FA$IdWeight, ind204w6, ylim=c(0,1.7), xlim=c(0,350) , col="grey40", pch=21, bg="white", bty="n", xlab="Wild individuals weight (g)", ylab=expression(frac(paste(Sigma, " (20:1", omega, 9 + 22:1, omega, 9 + "24:1", omega, "9)"), paste(20:4, omega, 6))))
+legend("bottomleft" , legend=paste("n =", length(which(is.na(FA$IdWeigh)=="FALSE"))), bty="n")
+
+#dev.off()
+
+#pdf(file="FigS1b.pdf", width=13, height=5)
+
+par(las=1, mar=c(5,6,1,2), mfrow=c(1,2))
+
+ind181w9=newTab$C18.1w9
+boxplot(ind181w9~FA$Group, ylim=c(0,20), names=c("Born in captivity", "Captured and caged", "Wild"), xlab="", ylab=expression(frac(paste(Sigma, " (20:1", omega, 9 + 22:1, omega, 9 + "24:1", omega, "9)"), paste(18:1, omega, 9))), frame.plot=F, col=c("grey20", "grey80", "white"), border="grey40")
+
+plot(FA$IdWeight, ind181w9, ylim=c(0,20), xlim=c(0,350) , col="grey40", pch=21, bg="white", bty="n", xlab="Wild individuals weight (g)", ylab=expression(frac(paste(Sigma, " (20:1", omega, 9 + 22:1, omega, 9 + "24:1", omega, "9)"), paste(18:1, omega, 9))))
+legend("bottomleft" , legend=paste("n =", length(which(is.na(FA$IdWeigh)=="FALSE"))), bty="n")
+
+#dev.off()
+
+```
 
 
 ## Stable isotopes
@@ -310,7 +394,7 @@ legend("bottomleft", legend=paste("N =", length(levels(as.factor(SI$SplBatch))),
 ## Amino acids
 
 ```{r}
-allAA=AA[,-c(1:5)]
+allAA=AA[,-c(1:6)]
 rownames(allAA)=AA[,1]
 
 # Let's edit a summary table
@@ -369,10 +453,9 @@ legend("topleft", legend=expression(bold("A")), bty="n", cex=3, inset=c(-0.1,-0.
   
 ```
 
+### Building the PLSDA
 
-### Graphical representation using PLSDA
-
-```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
+```{r}
 
 # Transforming group into indicating variable
 var.ind <- DUMMY(paste(AA$Group, sep=""))
@@ -388,7 +471,57 @@ attributes(PLSDA)
 PLSDA$coefficients
 att=attributes(loadings(PLSDA))$explvar
 
-# Drawing
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, AA$Group, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+mod
+
+# Let's see which of the three groups are significantly different based on Euclidean distances between PLSDA coordinates
+
+perm <- adonis2(allAA~AA$Group, method="euclidean")
+
+grp   <- factor(AA$Group)
+pairs <- combn(levels(grp), 2, simplify = FALSE)
+
+res <- do.call(rbind, lapply(pairs, function(p) {
+  idx <- grp %in% p
+  d   <- data.frame(g = droplevels(grp[idx]))
+  a   <- adonis2(allAA[idx, ] ~ g, data = d, method = "euclidean",
+                 permutations = 9999)
+  data.frame(pair = paste(p, collapse = " vs "),
+             n    = sum(idx),
+             F    = a$F[1],
+             R2   = a$R2[1],
+             p    = a$`Pr(>F)`[1])
+}))
+res$p_adj <- p.adjust(res$p, method = "holm")   # ou "BH"
+res
+
+
+# Building a PLSDA model with only two modalities
+var.ind <- DUMMY(paste(AA$Origin, sep=""))
+fac <- as.factor(paste(AA$Origin, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(allAA)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+attributes(PLSDA)
+PLSDA$coefficients
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, AA$Origin, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+mod
+
+
+
+```
+
+### Graphical representation using PLSDA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
 
 #svg(file="Fig4B_AA.PLSDAbis.svg", width=7.5, height=6)
 
@@ -458,12 +591,36 @@ table(predict(newTree, type="class"), AA$Origin)
 #Let's see which samples are wrongly classified
 rownames(allAA[which(predict(newTree, type="class")!=AA$Origin),])
 
+#Cross validation accuracy rate
+AccuracyAA=1-newTree$cptable[2, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1]
+print(AccuracyAA)
+
+#Model validation
+printcp(newTree) / plotcp(newTree)
+```
+
+### Relationship between the AA indicator and wild individuals size
+
+```{r echo=FALSE, fig.width=13, fig.height=5, fig.align="center"}
+
+#pdf(file="FigS1c.pdf", width=13, height=5)
+
+par(las=1, mar=c(5,6,1,2), mfrow=c(1,2))
+
+indAA=newTab$Gly
+boxplot(indAA~AA$Group, ylim=c(0,0.4), names=c("Born in captivity", "Captured and caged", "Wild"), xlab="", ylab=expression(frac(Asx, Gly)), frame.plot=F, col=c("grey20", "grey80", "white"), border="grey40")
+
+plot(AA$IdWeight, indAA, ylim=c(0,0.4), xlim=c(0,350) , col="grey40", pch=21, bg="white", bty="n", xlab="Wild individuals weight (g)", ylab=expression(frac(Asx, Gly)))
+legend("bottomleft" , legend=paste("n =", length(which(is.na(AA$IdWeigh)=="FALSE"))), bty="n")
+
+#dev.off()
+
 ```
 
 ## Sterols
 
 ```{r}
-allSt=St[,-c(1:6, which(colnames(St)=="Stigmasterol"))]
+allSt=St[,-c(1:7, which(colnames(St)=="Stigmasterol"))]
 rownames(allSt)=St[,1]
 allSt[is.na(allSt)]=0
 
@@ -530,10 +687,10 @@ legend("topleft", legend=expression(bold("A")), bty="n", cex=3, inset=c(-0.1,-0.
   
 ```
 
+### Building the PLSDA
 
-### Graphical representation using PLSDA
+```{r}
 
-```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
 
 # Transforming group into indicating variable
 var.ind <- DUMMY(paste(St$Group, sep=""))
@@ -543,14 +700,63 @@ fac <- as.factor(paste(St$Group, sep=""))
 DATA.M <- as.matrix(prctSt)
 
 # Canonical Powered Partial least squared (PLS) regression
-PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T)
 summary (PLSDA)
 attributes(PLSDA)
 PLSDA$coefficients
 att=attributes(loadings(PLSDA))$explvar
 
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, St$Group, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+mod
 
-# Drawing
+# Let's see which of the three groups are significantly different based on Euclidean distances between PLSDA coordinates
+
+perm <- adonis2(prctSt~St$Group, method="euclidean")
+
+grp   <- factor(St$Group)
+pairs <- combn(levels(grp), 2, simplify = FALSE)
+
+res <- do.call(rbind, lapply(pairs, function(p) {
+  idx <- grp %in% p
+  d   <- data.frame(g = droplevels(grp[idx]))
+  a   <- adonis2(prctSt[idx, ] ~ g, data = d, method = "euclidean",
+                 permutations = 9999)
+  data.frame(pair = paste(p, collapse = " vs "),
+             n    = sum(idx),
+             F    = a$F[1],
+             R2   = a$R2[1],
+             p    = a$`Pr(>F)`[1])
+}))
+res$p_adj <- p.adjust(res$p, method = "holm")   # ou "BH"
+res
+
+
+# Building a PLSDA model with only two modalities
+var.ind <- DUMMY(paste(St$Origin, sep=""))
+fac <- as.factor(paste(St$Origin, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prctSt)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T)
+summary (PLSDA)
+attributes(PLSDA)
+PLSDA$coefficients
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, St$Origin, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+mod
+
+
+
+```
+
+### Graphical representation using PLSDA
+
+```{r echo=FALSE, fig.width=7.5, fig.height=6, fig.align="center"}
 
 #svg(file="Fig5B_PLSDA.svg", width=7.5, height=6)
 
@@ -619,9 +825,29 @@ table(predict(newTree, type="class"), St$Origin)
 #Let's see which samples are wrongly classified
 rownames(allSt[which(predict(newTree, type="class")!=St$Origin),])
 
+#Cross validation accuracy rate
+AccuracySt=1-newTree$cptable[2, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1]
+print(AccuracySt)
+
+#Model validation
+printcp(newTree) / plotcp(newTree)
+
 ```
+### Relationship between the St indicator and wild individuals size
 
+```{r echo=FALSE, fig.width=13, fig.height=5, fig.align="center"}
 
+pdf(file="FigS1d.pdf", width=13, height=5)
 
+par(las=1, mar=c(5,6,1,2), mfrow=c(1,2))
 
+indSt=newTab$Stigmasta.3.5.diene
+boxplot(indSt~St$Group, ylim=c(0,17), names=c("Born in captivity", "Captured and caged", "Wild"), xlab="", ylab=expression(frac(paste(C[29],H[46]), "Stigmasta,3-5,diene")), frame.plot=F, col=c("grey20", "grey80", "white"), border="grey40")
+
+plot(St$IdWeight, indSt, ylim=c(0,17), xlim=c(0,350) , col="grey40", pch=21, bg="white", bty="n", xlab="Wild individuals weight (g)", ylab=expression(frac(paste(C[29],H[46]), "Stigmasta,3-5,diene")))
+legend("bottomleft" , legend=paste("n =", length(which(is.na(St$IdWeigh)=="FALSE"))), bty="n")
+
+dev.off()
+
+```
 

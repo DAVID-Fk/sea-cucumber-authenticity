@@ -9,12 +9,13 @@ Let's begin by loading the libraries that we will require to run the analyses.
 
 ``` r
 #library(agricolae)
-#library(vegan)
+library(vegan)
 library(ade4)
 library(factoextra)
 library(easyCODA)
 library(pls)
 library(rpart)
+library(ropls)
 ```
 
 Loading the data
@@ -26,16 +27,19 @@ For details on line and column headings please check the readme file.
 
 ``` r
 FA <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/FA_screening.csv", sep=";", header=T)
+FA <- read.csv("FA_screening.csv", sep=";", header=T)
 SI <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/SI_screening.csv", sep=";", header=T)
 AA <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/AA_screening.csv", sep=";", header=T)
+AA <- read.csv("AA_screening.csv", sep=";", header=T)
 St <- read.csv("https://raw.githubusercontent.com/DAVID-Fk/Sea-cucumber-authenticity/main/St_screening.csv", sep=";", header=T)
+St <- read.csv("St_screening.csv", sep=";", header=T)
 ```
 
 Fatty acids
 -----------
 
 ``` r
-allFA=FA[,-c(1:7, which(colnames(FA)=="C23.0"))]
+allFA=FA[,-c(1:8, which(colnames(FA)=="C23.0"))]
 rownames(allFA)=FA[,1]
 allFA[is.na(allFA)]=0
 
@@ -157,7 +161,20 @@ summaryFA=data.frame(M=aggregate(cbind(prct, brFA, SFA, MUFA, LCMUFA, PUFA, HUFA
 
 <img src="Script_screening_files/figure-markdown_github/unnamed-chunk-4-1.png" style="display: block; margin: auto;" />
 
-### Graphical representation using PLSDA
+### Building the PLSDA
+
+``` r
+# Transforming group into indicating variable
+var.ind <- DUMMY(paste(FA$Group, sep=""))
+fac <- as.factor(paste(FA$Group, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prct)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA <- cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+```
 
     ## Data:    X dimension: 252 28 
     ##  Y dimension: 252 3
@@ -169,6 +186,10 @@ summaryFA=data.frame(M=aggregate(cbind(prct, brFA, SFA, MUFA, LCMUFA, PUFA, HUFA
     ## BornCap    5.632e+01    56.47
     ## Cap&Caged  6.482e-04    33.24
     ## Wild       2.741e+01    51.16
+
+``` r
+attributes(PLSDA)
+```
 
     ## $names
     ##  [1] "coefficients"           "scores"                 "loadings"              
@@ -183,6 +204,10 @@ summaryFA=data.frame(M=aggregate(cbind(prct, brFA, SFA, MUFA, LCMUFA, PUFA, HUFA
     ## 
     ## $class
     ## [1] "mvr"
+
+``` r
+PLSDA$scores
+```
 
     ##           Comp 1       Comp 2
     ## 1   -0.120398314 -0.302002430
@@ -440,7 +465,388 @@ summaryFA=data.frame(M=aggregate(cbind(prct, brFA, SFA, MUFA, LCMUFA, PUFA, HUFA
     ## attr(,"class")
     ## [1] "scores"
 
-<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-5-1.png" style="display: block; margin: auto;" />
+``` r
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, FA$Group, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+```
+
+    ## PLS-DA
+    ## 252 samples x 28 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.498    0.449   0.441 0.319   2   0 0.001 0.001
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-5-1.png)
+
+``` r
+mod
+```
+
+    ## PLS-DA
+    ## 252 samples x 28 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.498    0.449   0.441 0.319   2   0 0.001 0.001
+
+``` r
+# Let's see which of the three groups are significantly different based on Euclidean distances between PLSDA coordinates
+
+perm <- adonis2(prct~FA$Group, method="euclidean")
+
+grp   <- factor(FA$Group)
+pairs <- combn(levels(grp), 2, simplify = FALSE)
+
+res <- do.call(rbind, lapply(pairs, function(p) {
+  idx <- grp %in% p
+  d   <- data.frame(g = droplevels(grp[idx]))
+  a   <- adonis2(prct[idx, ] ~ g, data = d, method = "euclidean",
+                 permutations = 9999)
+  data.frame(pair = paste(p, collapse = " vs "),
+             n    = sum(idx),
+             F    = a$F[1],
+             R2   = a$R2[1],
+             p    = a$`Pr(>F)`[1])
+}))
+res$p_adj <- p.adjust(res$p, method = "holm")   # ou "BH"
+res
+```
+
+    ##                   pair   n        F         R2     p p_adj
+    ## 1 BornCap vs Cap&Caged  96 33.53082 0.26292329 1e-04 3e-04
+    ## 2      BornCap vs Wild 189 15.74426 0.07765578 1e-04 3e-04
+    ## 3    Cap&Caged vs Wild 219 50.73417 0.18949457 1e-04 3e-04
+
+``` r
+# Building a PLSDA model with only two modalities
+var.ind <- DUMMY(paste(FA$Origin, sep=""))
+fac <- as.factor(paste(FA$Origin, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prct)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA <- cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+```
+
+    ## Data:    X dimension: 252 28 
+    ##  Y dimension: 252 2
+    ## Fit method: cppls
+    ## Number of components considered: 2
+    ## TRAINING: % variance explained
+    ##          1 comps  2 comps
+    ## X          12.04    36.45
+    ## BornCap    57.79    65.07
+    ## BornW      57.79    65.07
+
+``` r
+attributes(PLSDA)
+```
+
+    ## $names
+    ##  [1] "coefficients"           "scores"                 "loadings"              
+    ##  [4] "loading.weights"        "Yscores"                "Yloadings"             
+    ##  [7] "projection"             "Xmeans"                 "Ymeans"                
+    ## [10] "fitted.values"          "residuals"              "Xvar"                  
+    ## [13] "Xtotvar"                "gammas"                 "canonical.correlations"
+    ## [16] "smallNorm"              "A"                      "trunc.pow"             
+    ## [19] "fit.time"               "ncomp"                  "method"                
+    ## [22] "center"                 "scale"                  "call"                  
+    ## [25] "terms"                  "model"                 
+    ## 
+    ## $class
+    ## [1] "mvr"
+
+``` r
+PLSDA$scores
+```
+
+    ##           Comp 1      Comp 2
+    ## 1    0.122057359  0.58485795
+    ## 2    0.675650193 -0.40078188
+    ## 3   -0.362952321 -0.29109557
+    ## 4   -0.181231567  0.20609206
+    ## 5    0.365286098  0.76120083
+    ## 6   -0.496904596 -0.68221588
+    ## 7    0.125848032  0.71493248
+    ## 8    0.421714332  2.56084611
+    ## 9    0.059026586 -0.42167015
+    ## 10   0.136416755 -0.46575224
+    ## 11  -0.200558543  0.27556814
+    ## 12  -0.351263750 -0.03975595
+    ## 13  -0.101379801 -0.35630188
+    ## 14   0.226729749  0.23636185
+    ## 15   0.067019925 -0.17018527
+    ## 16   0.488938461 -0.42612586
+    ## 17  -0.213257678  0.42057056
+    ## 18  -0.047414292 -0.39220952
+    ## 19   0.024451122  0.96161438
+    ## 20   0.755887614  1.81473082
+    ## 21  -0.117563534  1.59516332
+    ## 22   0.626716423  1.70374133
+    ## 23  -0.675938823  0.18695016
+    ## 24   0.461975636  1.01641088
+    ## 25  -0.415739886  0.99298331
+    ## 26  -0.502177639  2.04243599
+    ## 27   1.120491798  0.13648591
+    ## 28   0.534649460 -0.39983059
+    ## 29   1.031696687 -0.72545962
+    ## 30   1.118246668 -2.02142487
+    ## 31  -0.007129846  0.09695038
+    ## 32   0.326499179  1.22593182
+    ## 33   0.802056535 -0.83648381
+    ## 34   0.538145176  1.04678833
+    ## 35   1.072791890 -1.09815830
+    ## 36   0.830254766  0.79536460
+    ## 37   1.099278224 -1.79094360
+    ## 38   0.446410621  0.15958488
+    ## 39   1.218638607  1.24294274
+    ## 40   1.594174018  0.12569769
+    ## 41   2.600776545 -0.94232817
+    ## 42   1.989392017 -0.30607013
+    ## 43   1.688018315 -0.26132924
+    ## 44   1.270082474  0.54924480
+    ## 45   0.070801857  0.51053729
+    ## 46   1.193833634 -1.04699207
+    ## 47  -0.110123518  1.18742552
+    ## 48   0.107526635  1.48670697
+    ## 49  -0.044372027  1.61679390
+    ## 50   0.370625834  2.00709261
+    ## 51   1.033353646  0.66307974
+    ## 52   0.623324377  0.72605146
+    ## 53   0.746680479  1.56460599
+    ## 54   0.094852329  3.01427440
+    ## 55   1.053211179  1.73211657
+    ## 56   1.029705978  1.05496051
+    ## 57   1.448600710 -0.60689336
+    ## 58   0.991474745  0.81518516
+    ## 59   1.025110100  0.29729575
+    ## 60   0.989783782  1.46739097
+    ## 61   2.484383076 -0.76221293
+    ## 62   1.310091556  0.75661481
+    ## 63   1.171899688  1.89339901
+    ## 64   0.505954159  2.45883105
+    ## 65   1.076126082  2.13842540
+    ## 66   1.166235867  1.38005620
+    ## 67   1.442970971  1.63869597
+    ## 68  -0.093492719  0.83296992
+    ## 69  -0.410552310  2.54135402
+    ## 70  -0.504778861  0.50619937
+    ## 71  -0.217770176  1.65904079
+    ## 72  -0.792558901 -0.17647513
+    ## 73  -0.588161141  0.65044390
+    ## 74  -0.230812019  0.60092384
+    ## 75   0.310519397 -0.01622210
+    ## 76   0.236294399  0.38121397
+    ## 77  -0.282833780  1.12415292
+    ## 78   0.208432860  1.52746147
+    ## 79  -0.031518140  0.82679094
+    ## 80  -0.350544489  1.38810499
+    ## 81  -0.728938434  0.97145660
+    ## 82   1.270599468  0.18359116
+    ## 83  -0.250771337  0.66052526
+    ## 84   0.001075257  1.24784279
+    ## 85  -0.530799620  2.32693050
+    ## 86  -0.464052389  0.21446283
+    ## 87  -0.046211554  1.82766277
+    ## 88  -0.234209495  0.82001610
+    ## 89   0.664237037 -0.61884772
+    ## 90  -0.131144732  0.06454174
+    ## 91  -0.368794803  0.72117993
+    ## 92  -0.226523392  0.38705409
+    ## 93   0.373163029  1.69880652
+    ## 94  -1.171061253  1.99145781
+    ## 95  -1.006333678  0.45425044
+    ## 96  -0.144290720  0.71795887
+    ## 97   0.549748846  1.32130599
+    ## 98  -0.752506383  1.01753991
+    ## 99  -0.604568263 -0.77241303
+    ## 100  0.429129419  1.23217203
+    ## 101  0.382631448 -0.12832411
+    ## 102  0.217647236 -0.15105044
+    ## 103 -0.029134295  0.11252165
+    ## 104 -0.097589849  0.66759993
+    ## 105  0.257465485 -0.37828931
+    ## 106  1.770049091 -0.32855103
+    ## 107  0.067809642  1.01948736
+    ## 108  0.804302323  0.31873474
+    ## 109  1.015781574  0.67472460
+    ## 110  1.074368730 -1.28780465
+    ## 111  0.080607344  1.24581247
+    ## 112  0.521602357 -1.01401001
+    ## 113  0.538840547  0.50549071
+    ## 114  1.364314260  0.14243285
+    ## 115  1.836119032  1.91965725
+    ## 116  1.552950615  2.01642207
+    ## 117  1.237980288  2.41187950
+    ## 118  1.991324321 -0.84170970
+    ## 119  2.854376915 -1.21023427
+    ## 120  1.348958376 -1.22167438
+    ## 121  1.598384546  0.43581933
+    ## 122  2.679920277 -0.47406079
+    ## 123  2.214815179  2.07751097
+    ## 124  0.879229841  2.90995602
+    ## 125  1.887407661  1.71923968
+    ## 126 -1.791111466 -2.22150180
+    ## 127  0.368033645  2.10776545
+    ## 128  1.011922081 -2.54557254
+    ## 129  2.004582382 -1.66084316
+    ## 130  1.644681058 -0.17029614
+    ## 131  1.590405528 -0.07561081
+    ## 132  2.008362381 -0.19237731
+    ## 133  1.996212416  1.06318291
+    ## 134  1.880991035 -0.57441631
+    ## 135  1.710320481 -0.90184005
+    ## 136  1.838039633 -2.32492400
+    ## 137  2.597847117 -1.21607092
+    ## 138  1.535602005  0.68862153
+    ## 139 -0.324484345  0.40381670
+    ## 140  0.654022299 -0.19417463
+    ## 141 -0.370968244  1.70231349
+    ## 142 -0.936483918  0.59792515
+    ## 143 -0.609436644  1.07812245
+    ## 144  0.374524783 -0.16476718
+    ## 145  1.638794019 -0.80351745
+    ## 146  1.937790874 -0.42504541
+    ## 147  2.117502929 -1.27861638
+    ## 148  1.669118707 -0.75566526
+    ## 149  1.518999911  0.46327796
+    ## 150  1.107379074 -1.23112861
+    ## 151  0.595064330  3.55640028
+    ## 152  0.134768039  3.99771327
+    ## 153  0.183955546  3.42654040
+    ## 154  0.390546826  3.06372762
+    ## 155  0.336175710  3.36899393
+    ## 156 -0.053503432  2.85755345
+    ## 157  0.465860130 -0.29810598
+    ## 158  0.336463975 -1.32099307
+    ## 159  0.429274333 -1.45522726
+    ## 160  0.162799895 -0.68991666
+    ## 161  0.483123394 -0.88147187
+    ## 162  0.369323362 -0.80434570
+    ## 163  1.952624137 -2.06506857
+    ## 164  0.374405864 -1.83014909
+    ## 165  0.099024050 -0.54766449
+    ## 166  0.027530410  0.05102067
+    ## 167  0.304655761 -0.34180477
+    ## 168 -0.032313166 -1.04051190
+    ## 169  0.438896596  0.13084298
+    ## 170  1.074343300 -0.98528228
+    ## 171  0.475554278 -0.95126129
+    ## 172 -0.091779637 -0.80444111
+    ## 173  0.568652619 -0.41456051
+    ## 174 -0.513476976 -0.08594573
+    ## 175 -0.024756610 -0.18550595
+    ## 176 -0.759853866 -1.31183240
+    ## 177 -0.521968277  0.87822091
+    ## 178  0.680031829 -1.23726257
+    ## 179  1.659509461 -2.47912066
+    ## 180  1.546601625 -1.30246258
+    ## 181  2.190349757 -2.33014282
+    ## 182  0.822379788 -0.32618265
+    ## 183  1.544478588 -1.66743762
+    ## 184  0.229453066 -1.09704073
+    ## 185  0.943715908 -1.52703854
+    ## 186  0.234511403 -2.31004295
+    ## 187 -0.373218691 -0.82292889
+    ## 188  1.369621105 -1.77945194
+    ## 189  0.345977916 -1.46555786
+    ## 190  0.100955054 -1.57684696
+    ## 191 -0.304222233 -1.07096326
+    ## 192  1.403573802 -2.52679545
+    ## 193  0.074059132 -0.47913070
+    ## 194  0.831013887 -1.34175744
+    ## 195  1.761336841 -1.34858665
+    ## 196  1.154690907 -1.67317579
+    ## 197  1.711248628 -1.21235379
+    ## 198  0.794484667 -0.57300033
+    ## 199  1.904323782 -1.96508838
+    ## 200  1.201131104 -1.67641515
+    ## 201  0.430304532 -0.72145558
+    ## 202  0.023486111 -0.09720254
+    ## 203  0.742497792 -1.10690945
+    ## 204  0.165991242 -2.50125669
+    ## 205  0.877971151  0.62295047
+    ## 206  0.103619189 -1.71723115
+    ## 207  1.146067819 -1.24033635
+    ## 208  1.750597998 -1.51147681
+    ## 209  1.083457604 -1.14312072
+    ## 210 -2.247879663 -1.21384953
+    ## 211 -0.823295530 -2.12960109
+    ## 212 -0.377934864  0.15787102
+    ## 213 -2.374233574  1.64030131
+    ## 214 -1.223564732  1.57590522
+    ## 215  0.268024699 -0.45096002
+    ## 216 -0.745900308  0.85541325
+    ## 217 -0.309368372  0.05652795
+    ## 218 -1.462716492  2.36462023
+    ## 219 -1.113029954  0.87546985
+    ## 220 -2.320142685 -3.69181717
+    ## 221 -1.168468722 -3.15248722
+    ## 222 -2.284827369 -2.46774139
+    ## 223 -3.844955871 -4.15568831
+    ## 224 -2.645512819 -3.54890671
+    ## 225 -5.861087394 -0.38379335
+    ## 226 -6.215682474  1.13284558
+    ## 227 -8.015198005  0.81561608
+    ## 228 -7.721759198  0.80672099
+    ## 229 -7.197771487  0.13283534
+    ## 230 -5.936597645  0.42279464
+    ## 231 -8.084393290 -0.22952795
+    ## 232 -7.205681223  1.08745588
+    ## 233 -1.420553190 -1.46553144
+    ## 234 -2.176289014 -1.19017215
+    ## 235 -2.622656699 -0.80860946
+    ## 236 -2.205205048 -0.78582843
+    ## 237 -2.144626034 -0.42668729
+    ## 238 -1.483893137 -0.88146173
+    ## 239 -2.055367709 -0.54217939
+    ## 240 -1.751411633 -2.11682585
+    ## 241 -1.883450687 -2.64243609
+    ## 242 -1.886229189 -1.62671776
+    ## 243 -2.703896572 -1.11866801
+    ## 244 -2.115948995 -1.40932516
+    ## 245 -2.223886967 -0.21073671
+    ## 246 -1.388130396 -2.54322266
+    ## 247 -2.688568774  0.95358801
+    ## 248 -2.816987848  0.26398081
+    ## 249 -3.273590474 -1.07032386
+    ## 250 -3.393933938 -0.60405938
+    ## 251 -2.542665588 -0.06669248
+    ## 252 -2.716764428 -0.56265931
+    ## attr(,"class")
+    ## [1] "scores"
+
+``` r
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, FA$Origin, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+```
+
+    ## PLS-DA
+    ## 252 samples x 28 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.365    0.651   0.636 0.201   2   0 0.001 0.001
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-5-2.png)
+
+``` r
+mod
+```
+
+    ## PLS-DA
+    ## 252 samples x 28 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.365    0.651   0.636 0.201   2   0 0.001 0.001
+
+### Graphical representation using PLSDA
+
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-6-1.png" style="display: block; margin: auto;" />
 
 ### Regression tree
 
@@ -455,7 +861,7 @@ plot(tree)
 text(tree)
 ```
 
-![](Script_screening_files/figure-markdown_github/unnamed-chunk-6-1.png)
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-7-1.png)
 
 ``` r
 table(predict(tree, type="class"), FA$Origin)
@@ -479,7 +885,7 @@ plot(newTree)
 text(newTree)
 ```
 
-![](Script_screening_files/figure-markdown_github/unnamed-chunk-6-2.png)
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-7-2.png)
 
 ``` r
 table(predict(newTree, type="class"), FA$Origin)
@@ -497,70 +903,59 @@ rownames(allFA[which(predict(newTree, type="class")!=FA$Origin),])
 
     ## [1] "HF_U01_Vfr" "HF_V36 STM" "HF_U01 Ole" "HF_J02BeM"  "HF_U01 Plo"
 
-### Regression tree
-
 ``` r
-# Let's see seasonal changes in diatoms biomarkers at the Glénan Islands site
-
-GL=prct[which(substring(FA$Id, 7,8)=="GL"),]
-date=as.POSIXct(FA[which(substring(FA$Id, 7,8)=="GL"),"SamplingDate"], format="%d/%m/%Y")
-lvldate=as.POSIXct(levels(as.factor(date)), format="%Y-%m-%d")
-
-pdf(file="FigS1.pdf", width=5, height=9)
-
-par(las=1, mar=c(5,5,1,2), mfrow=c(3,1))
-
-var=GL[, "C14.0"]
-plot(date, var, type="n", xaxt="n", xlab="", ylab="", bty="n")
-
-mtext(text="Proportion of FA 14:0 (%)", side=2, las=3, line=2.5, cex=1)
-axis.POSIXct(side=1, x=date, at=date, format ="%b %y", labels=T, las=2)
-
-arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldate, y1=tapply(var, date, mean) - tapply(var, date, sd), length=0.03, angle=90, code=3)
-
-lines(lvldate, tapply(var, date, mean))
-points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2)
-
-var=GL[, "C16.1w7"]
-plot(date, var, type="n", xaxt="n", xlab="", ylab="", bty="n")
-
-mtext(text="Proportion of FA 16:1w7 (%)", side=2, las=3, line=2.5, cex=1)
-axis.POSIXct(side=1, x=date, at=date, format ="%b %y", labels=T, las=2)
-
-arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldate, y1=tapply(var, date, mean) - tapply(var, date, sd), length=0.03, angle=90, code=3)
-
-lines(lvldate, tapply(var, date, mean))
-points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2)
-
-var=rowSums(GL[, c(which(colnames(GL)=="C15.0iso"), which(colnames(GL)=="C15.0anteiso"), which(colnames(GL)=="C16.0iso"))])
-plot(date, var, type="n", xaxt="n", xlab="", ylab="", bty="n")
-
-mtext(text="Proportion of BrFA (%)", side=2, las=3, line=2.5, cex=1)
-axis.POSIXct(side=1, x=date, at=date, format ="%b %y", labels=T, las=2)
-
-arrows(x0=lvldate, y0=tapply(var, date, mean) + tapply(var, date, sd), x1=lvldate, y1=tapply(var, date, mean) - tapply(var, date, sd), length=0.03, angle=90, code=3)
-
-lines(lvldate, tapply(var, date, mean))
-points(lvldate, tapply(var, date, mean), pch=21, col="grey40", bg="black", cex=2)
-
-dev.off()
+#Cross validation accuracy rate
+AccuracyFA=1-newTree$cptable[3, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1]
+print(AccuracyFA)
 ```
 
-    ## quartz_off_screen 
-    ##                 2
+    ## [1] 0.9404762
+
+``` r
+#Model validation
+printcp(newTree) / plotcp(newTree)
+```
+
+    ## 
+    ## Classification tree:
+    ## rpart(formula = fmla)
+    ## 
+    ## Variables actually used in tree construction:
+    ## [1] newTab$C18.1w9 newTab$C20.4w6
+    ## 
+    ## Root node error: 33/252 = 0.13095
+    ## 
+    ## n= 252 
+    ## 
+    ##        CP nsplit rel error  xerror    xstd
+    ## 1 0.45455      0   1.00000 1.00000 0.16228
+    ## 2 0.39394      1   0.54545 0.78788 0.14633
+    ## 3 0.01000      2   0.15152 0.45455 0.11382
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-7-3.png)
+
+    ## numeric(0)
+
+### Seasonal dynamics
+
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-8-1.png" style="display: block; margin: auto;" />
+
+### Relationship between FA indicators and wild individuals size
+
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-9-1.png" style="display: block; margin: auto;" /><img src="Script_screening_files/figure-markdown_github/unnamed-chunk-9-2.png" style="display: block; margin: auto;" />
 
 Stable isotopes
 ---------------
 
 ### Graphical representation (biplot 13C-15N)
 
-<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-8-1.png" style="display: block; margin: auto;" />
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-10-1.png" style="display: block; margin: auto;" />
 
 Amino acids
 -----------
 
 ``` r
-allAA=AA[,-c(1:5)]
+allAA=AA[,-c(1:6)]
 rownames(allAA)=AA[,1]
 
 # Let's edit a summary table
@@ -572,9 +967,22 @@ summaryAA=data.frame(M=aggregate(allAA , by=list(AA$SplBatch), mean), SD=aggrega
 
 ### Graphical representation using PCA
 
-<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-10-1.png" style="display: block; margin: auto;" />
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-12-1.png" style="display: block; margin: auto;" />
 
-### Graphical representation using PLSDA
+### Building the PLSDA
+
+``` r
+# Transforming group into indicating variable
+var.ind <- DUMMY(paste(AA$Group, sep=""))
+fac <- as.factor(paste(AA$Group, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(allAA)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+```
 
     ## Data:    X dimension: 51 16 
     ##  Y dimension: 51 3
@@ -586,6 +994,10 @@ summaryAA=data.frame(M=aggregate(allAA , by=list(AA$SplBatch), mean), SD=aggrega
     ## BornCap      80.84    82.37
     ## Cap&Caged    14.40    29.62
     ## Wild         39.89    45.08
+
+``` r
+attributes(PLSDA)
+```
 
     ## $names
     ##  [1] "coefficients"           "scores"                 "loadings"              
@@ -600,6 +1012,10 @@ summaryAA=data.frame(M=aggregate(allAA , by=list(AA$SplBatch), mean), SD=aggrega
     ## 
     ## $class
     ## [1] "mvr"
+
+``` r
+PLSDA$coefficients
+```
 
     ## , , 1 comps
     ## 
@@ -641,7 +1057,172 @@ summaryAA=data.frame(M=aggregate(allAA , by=list(AA$SplBatch), mean), SD=aggrega
     ## Lys  0.03875049 -0.001423700 -0.037326787
     ## Arg  0.01301352 -0.062790785  0.049777265
 
-<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-11-1.png" style="display: block; margin: auto;" />
+``` r
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, AA$Group, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+```
+
+    ## PLS-DA
+    ## 51 samples x 16 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.772    0.488   0.419 0.329   2   0 0.001 0.001
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-13-1.png)
+
+``` r
+mod
+```
+
+    ## PLS-DA
+    ## 51 samples x 16 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.772    0.488   0.419 0.329   2   0 0.001 0.001
+
+``` r
+# Let's see which of the three groups are significantly different based on Euclidean distances between PLSDA coordinates
+
+perm <- adonis2(allAA~AA$Group, method="euclidean")
+
+grp   <- factor(AA$Group)
+pairs <- combn(levels(grp), 2, simplify = FALSE)
+
+res <- do.call(rbind, lapply(pairs, function(p) {
+  idx <- grp %in% p
+  d   <- data.frame(g = droplevels(grp[idx]))
+  a   <- adonis2(allAA[idx, ] ~ g, data = d, method = "euclidean",
+                 permutations = 9999)
+  data.frame(pair = paste(p, collapse = " vs "),
+             n    = sum(idx),
+             F    = a$F[1],
+             R2   = a$R2[1],
+             p    = a$`Pr(>F)`[1])
+}))
+res$p_adj <- p.adjust(res$p, method = "holm")   # ou "BH"
+res
+```
+
+    ##                   pair  n          F        R2      p  p_adj
+    ## 1 BornCap vs Cap&Caged 36 39.5042833 0.5374419 0.0001 0.0003
+    ## 2      BornCap vs Wild 39 51.6846374 0.5827913 0.0001 0.0003
+    ## 3    Cap&Caged vs Wild 27  0.6063139 0.0236783 0.5042 0.5042
+
+``` r
+# Building a PLSDA model with only two modalities
+var.ind <- DUMMY(paste(AA$Origin, sep=""))
+fac <- as.factor(paste(AA$Origin, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(allAA)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T) 
+summary (PLSDA)
+```
+
+    ## Data:    X dimension: 51 16 
+    ##  Y dimension: 51 2
+    ## Fit method: cppls
+    ## Number of components considered: 2
+    ## TRAINING: % variance explained
+    ##          1 comps  2 comps
+    ## X          63.78    80.60
+    ## BornCap    81.00    82.94
+    ## BornW      81.00    82.94
+
+``` r
+attributes(PLSDA)
+```
+
+    ## $names
+    ##  [1] "coefficients"           "scores"                 "loadings"              
+    ##  [4] "loading.weights"        "Yscores"                "Yloadings"             
+    ##  [7] "projection"             "Xmeans"                 "Ymeans"                
+    ## [10] "fitted.values"          "residuals"              "Xvar"                  
+    ## [13] "Xtotvar"                "gammas"                 "canonical.correlations"
+    ## [16] "smallNorm"              "A"                      "trunc.pow"             
+    ## [19] "fit.time"               "ncomp"                  "method"                
+    ## [22] "center"                 "scale"                  "call"                  
+    ## [25] "terms"                  "model"                 
+    ## 
+    ## $class
+    ## [1] "mvr"
+
+``` r
+PLSDA$coefficients
+```
+
+    ## , , 1 comps
+    ## 
+    ##           BornCap         BornW
+    ## Asx  4.265546e-02 -4.265546e-02
+    ## Thr  3.361387e-02 -3.361387e-02
+    ## Ser  1.152587e-02 -1.152587e-02
+    ## Glx  3.818164e-02 -3.818164e-02
+    ## Gly -3.828529e-02  3.828529e-02
+    ## Ala -4.317202e-02  4.317202e-02
+    ## Pro  8.313201e-03 -8.313201e-03
+    ## Val  4.062372e-02 -4.062372e-02
+    ## Met  3.992103e-02 -3.992103e-02
+    ## Ile  4.248034e-02 -4.248034e-02
+    ## Leu  4.169343e-02 -4.169343e-02
+    ## Tyr  3.419234e-02 -3.419234e-02
+    ## Phe  3.782981e-02 -3.782981e-02
+    ## His  3.418413e-02 -3.418413e-02
+    ## Lys  4.223683e-02 -4.223683e-02
+    ## Arg  9.073793e-05 -9.073793e-05
+    ## 
+    ## , , 2 comps
+    ## 
+    ##           BornCap         BornW
+    ## Asx  0.0494162712 -0.0494162712
+    ## Thr  0.0161354461 -0.0161354461
+    ## Ser -0.0187412658  0.0187412658
+    ## Glx  0.0449568420 -0.0449568420
+    ## Gly -0.0325237871  0.0325237871
+    ## Ala -0.0438469253  0.0438469253
+    ## Pro -0.0004084145  0.0004084145
+    ## Val  0.0442465729 -0.0442465729
+    ## Met  0.0498612390 -0.0498612390
+    ## Ile  0.0439782335 -0.0439782335
+    ## Leu  0.0382438535 -0.0382438535
+    ## Tyr  0.0348615047 -0.0348615047
+    ## Phe  0.0412064240 -0.0412064240
+    ## His  0.0488659781 -0.0488659781
+    ## Lys  0.0428166498 -0.0428166498
+    ## Arg -0.0192488306  0.0192488306
+
+``` r
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, AA$Origin, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+```
+
+    ## PLS-DA
+    ## 51 samples x 16 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.806    0.829   0.812 0.213   2   0 0.001 0.001
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-13-2.png)
+
+``` r
+mod
+```
+
+    ## PLS-DA
+    ## 51 samples x 16 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.806    0.829   0.812 0.213   2   0 0.001 0.001
+
+### Graphical representation using PLSDA
+
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-14-1.png" style="display: block; margin: auto;" />
 
 ### Regression tree
 
@@ -656,7 +1237,7 @@ plot(tree)
 text(tree)
 ```
 
-![](Script_screening_files/figure-markdown_github/unnamed-chunk-12-1.png)
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-15-1.png)
 
 ``` r
 table(predict(tree, type="class"), AA$Origin)
@@ -680,7 +1261,7 @@ plot(newTree)
 text(newTree)
 ```
 
-![](Script_screening_files/figure-markdown_github/unnamed-chunk-12-2.png)
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-15-2.png)
 
 ``` r
 table(predict(newTree, type="class"), AA$Origin)
@@ -698,11 +1279,47 @@ rownames(allAA[which(predict(newTree, type="class")!=AA$Origin),])
 
     ## [1] "HF_U01_OLE" "HF_U03_OLE"
 
+``` r
+#Cross validation accuracy rate
+AccuracyAA=1-newTree$cptable[2, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1]
+print(AccuracyAA)
+```
+
+    ## [1] 0.9019608
+
+``` r
+#Model validation
+printcp(newTree) / plotcp(newTree)
+```
+
+    ## 
+    ## Classification tree:
+    ## rpart(formula = fmla)
+    ## 
+    ## Variables actually used in tree construction:
+    ## [1] newTab$Gly
+    ## 
+    ## Root node error: 24/51 = 0.47059
+    ## 
+    ## n= 51 
+    ## 
+    ##        CP nsplit rel error  xerror     xstd
+    ## 1 0.91667      0  1.000000 1.45833 0.138069
+    ## 2 0.01000      1  0.083333 0.20833 0.088485
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-15-3.png)
+
+    ## numeric(0)
+
+### Relationship between the AA indicator and wild individuals size
+
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-16-1.png" style="display: block; margin: auto;" />
+
 Sterols
 -------
 
 ``` r
-allSt=St[,-c(1:6, which(colnames(St)=="Stigmasterol"))]
+allSt=St[,-c(1:7, which(colnames(St)=="Stigmasterol"))]
 rownames(allSt)=St[,1]
 allSt[is.na(allSt)]=0
 
@@ -722,9 +1339,22 @@ summarySt=data.frame(M=aggregate(cbind(prctSt, conctotSt) , by=list(St$SplBatch)
 
 ### Graphical representation using PCA
 
-<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-14-1.png" style="display: block; margin: auto;" />
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-18-1.png" style="display: block; margin: auto;" />
 
-### Graphical representation using PLSDA
+### Building the PLSDA
+
+``` r
+# Transforming group into indicating variable
+var.ind <- DUMMY(paste(St$Group, sep=""))
+fac <- as.factor(paste(St$Group, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prctSt)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T)
+summary (PLSDA)
+```
 
     ## Data:    X dimension: 73 19 
     ##  Y dimension: 73 3
@@ -736,6 +1366,10 @@ summarySt=data.frame(M=aggregate(cbind(prctSt, conctotSt) , by=list(St$SplBatch)
     ## BornCap      48.75    54.52
     ## Cap&Caged    10.86    26.43
     ## Wild         19.53    19.98
+
+``` r
+attributes(PLSDA)
+```
 
     ## $names
     ##  [1] "coefficients"           "scores"                 "loadings"              
@@ -750,6 +1384,10 @@ summarySt=data.frame(M=aggregate(cbind(prctSt, conctotSt) , by=list(St$SplBatch)
     ## 
     ## $class
     ## [1] "mvr"
+
+``` r
+PLSDA$coefficients
+```
 
     ## , , 1 comps
     ## 
@@ -797,7 +1435,178 @@ summarySt=data.frame(M=aggregate(cbind(prctSt, conctotSt) , by=list(St$SplBatch)
     ## Avenesterol                            -0.0431680041  0.029891753  0.013276251
     ## Unknown.5                               0.0659049783 -0.022606572 -0.043298407
 
-<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-15-1.png" style="display: block; margin: auto;" />
+``` r
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, St$Group, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+```
+
+    ## PLS-DA
+    ## 73 samples x 19 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.454    0.328   0.236 0.379   2   0 0.001 0.001
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-19-1.png)
+
+``` r
+mod
+```
+
+    ## PLS-DA
+    ## 73 samples x 19 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.454    0.328   0.236 0.379   2   0 0.001 0.001
+
+``` r
+# Let's see which of the three groups are significantly different based on Euclidean distances between PLSDA coordinates
+
+perm <- adonis2(prctSt~St$Group, method="euclidean")
+
+grp   <- factor(St$Group)
+pairs <- combn(levels(grp), 2, simplify = FALSE)
+
+res <- do.call(rbind, lapply(pairs, function(p) {
+  idx <- grp %in% p
+  d   <- data.frame(g = droplevels(grp[idx]))
+  a   <- adonis2(prctSt[idx, ] ~ g, data = d, method = "euclidean",
+                 permutations = 9999)
+  data.frame(pair = paste(p, collapse = " vs "),
+             n    = sum(idx),
+             F    = a$F[1],
+             R2   = a$R2[1],
+             p    = a$`Pr(>F)`[1])
+}))
+res$p_adj <- p.adjust(res$p, method = "holm")   # ou "BH"
+res
+```
+
+    ##                   pair  n         F         R2      p  p_adj
+    ## 1 BornCap vs Cap&Caged 43  8.566008 0.17282021 0.0010 0.0020
+    ## 2      BornCap vs Wild 60 13.308339 0.18663090 0.0001 0.0003
+    ## 3    Cap&Caged vs Wild 43  3.644796 0.08163989 0.0066 0.0066
+
+``` r
+# Building a PLSDA model with only two modalities
+var.ind <- DUMMY(paste(St$Origin, sep=""))
+fac <- as.factor(paste(St$Origin, sep=""))
+
+# Put the matrix into the good "matrix" shaping
+DATA.M <- as.matrix(prctSt)
+
+# Canonical Powered Partial least squared (PLS) regression
+PLSDA<-cppls(var.ind ~ DATA.M, ncomp=2, scale=T)
+summary (PLSDA)
+```
+
+    ## Data:    X dimension: 73 19 
+    ##  Y dimension: 73 2
+    ## Fit method: cppls
+    ## Number of components considered: 2
+    ## TRAINING: % variance explained
+    ##          1 comps  2 comps
+    ## X          22.07    37.61
+    ## BornCap    48.86    61.66
+    ## BornW      48.86    61.66
+
+``` r
+attributes(PLSDA)
+```
+
+    ## $names
+    ##  [1] "coefficients"           "scores"                 "loadings"              
+    ##  [4] "loading.weights"        "Yscores"                "Yloadings"             
+    ##  [7] "projection"             "Xmeans"                 "Ymeans"                
+    ## [10] "fitted.values"          "residuals"              "Xvar"                  
+    ## [13] "Xtotvar"                "gammas"                 "canonical.correlations"
+    ## [16] "smallNorm"              "A"                      "trunc.pow"             
+    ## [19] "fit.time"               "ncomp"                  "method"                
+    ## [22] "center"                 "scale"                  "call"                  
+    ## [25] "terms"                  "model"                 
+    ## 
+    ## $class
+    ## [1] "mvr"
+
+``` r
+PLSDA$coefficients
+```
+
+    ## , , 1 comps
+    ## 
+    ##                                             BornCap        BornW
+    ## Squalene                               -0.020837256  0.020837256
+    ## Unknown1                               -0.025680732  0.025680732
+    ## Cholest.2.ene                          -0.052550187  0.052550187
+    ## Unknown2                               -0.029090059  0.029090059
+    ## Cholest.3.5.diene                      -0.037773761  0.037773761
+    ## Brassicasterol                         -0.018161826  0.018161826
+    ## Unknown.3                              -0.005539031  0.005539031
+    ## Stigmasta.3.5.diene                    -0.077830851  0.077830851
+    ## C29H46                                  0.075665378 -0.075665378
+    ## Cholesterol                             0.018161863 -0.018161863
+    ## Cholestanol                            -0.030040655  0.030040655
+    ## Unknown.4                              -0.041989436  0.041989436
+    ## X14a.methylcholest.9.11..en.3b.ol       0.054492613 -0.054492613
+    ## Lathosterol                             0.002661427 -0.002661427
+    ## Episterol                              -0.014634178  0.014634178
+    ## X4a.14a.dimethylcholest.9.11..en.3b.ol -0.040335125  0.040335125
+    ## Dihydroparkeol                          0.047687262 -0.047687262
+    ## Avenesterol                            -0.028541038  0.028541038
+    ## Unknown.5                               0.067927082 -0.067927082
+    ## 
+    ## , , 2 comps
+    ## 
+    ##                                             BornCap        BornW
+    ## Squalene                               -0.064675839  0.064675839
+    ## Unknown1                                0.004796004 -0.004796004
+    ## Cholest.2.ene                          -0.048568177  0.048568177
+    ## Unknown2                                0.002849336 -0.002849336
+    ## Cholest.3.5.diene                      -0.012399848  0.012399848
+    ## Brassicasterol                         -0.001952873  0.001952873
+    ## Unknown.3                               0.029938291 -0.029938291
+    ## Stigmasta.3.5.diene                    -0.125738792  0.125738792
+    ## C29H46                                  0.084723738 -0.084723738
+    ## Cholesterol                             0.025461791 -0.025461791
+    ## Cholestanol                            -0.057291511  0.057291511
+    ## Unknown.4                              -0.071381744  0.071381744
+    ## X14a.methylcholest.9.11..en.3b.ol       0.055557322 -0.055557322
+    ## Lathosterol                            -0.006589960  0.006589960
+    ## Episterol                              -0.014990076  0.014990076
+    ## X4a.14a.dimethylcholest.9.11..en.3b.ol -0.075129404  0.075129404
+    ## Dihydroparkeol                          0.093813788 -0.093813788
+    ## Avenesterol                            -0.068390889  0.068390889
+    ## Unknown.5                               0.066865351 -0.066865351
+
+``` r
+att=attributes(loadings(PLSDA))$explvar
+
+# Let's check the risk of model overfitting
+mod <- opls(DATA.M, St$Origin, predI = 2, orthoI = 0, crossvalI = 7, permI = 1000, scaleC = "standard")
+```
+
+    ## PLS-DA
+    ## 73 samples x 19 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.376    0.617   0.531 0.311   2   0 0.001 0.001
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-19-2.png)
+
+``` r
+mod
+```
+
+    ## PLS-DA
+    ## 73 samples x 19 variables and 1 response
+    ## standard scaling of predictors and response(s)
+    ##       R2X(cum) R2Y(cum) Q2(cum) RMSEE pre ort  pR2Y   pQ2
+    ## Total    0.376    0.617   0.531 0.311   2   0 0.001 0.001
+
+### Graphical representation using PLSDA
+
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-20-1.png" style="display: block; margin: auto;" />
 
 ### Regression tree
 
@@ -812,7 +1621,7 @@ plot(tree)
 text(tree)
 ```
 
-![](Script_screening_files/figure-markdown_github/unnamed-chunk-16-1.png)
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-21-1.png)
 
 ``` r
 table(predict(tree, type="class"), St$Origin)
@@ -836,7 +1645,7 @@ plot(newTree)
 text(newTree)
 ```
 
-![](Script_screening_files/figure-markdown_github/unnamed-chunk-16-2.png)
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-21-2.png)
 
 ``` r
 table(predict(newTree, type="class"), St$Origin)
@@ -853,3 +1662,40 @@ rownames(allSt[which(predict(newTree, type="class")!=St$Origin),])
 ```
 
     ## [1] "HF_J01_BeM" "HF_J03_BeM" "HF_J05_BeM" "HF_U06_Plo"
+
+``` r
+#Cross validation accuracy rate
+AccuracySt=1-newTree$cptable[2, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1]
+print(AccuracySt)
+```
+
+    ## [1] 0.9315068
+
+``` r
+#Model validation
+printcp(newTree) / plotcp(newTree)
+```
+
+    ## 
+    ## Classification tree:
+    ## rpart(formula = fmla)
+    ## 
+    ## Variables actually used in tree construction:
+    ## [1] newTab$Stigmasta.3.5.diene
+    ## 
+    ## Root node error: 30/73 = 0.41096
+    ## 
+    ## n= 73 
+    ## 
+    ##        CP nsplit rel error  xerror     xstd
+    ## 1 0.86667      0   1.00000 1.00000 0.140124
+    ## 2 0.01000      1   0.13333 0.16667 0.071938
+
+![](Script_screening_files/figure-markdown_github/unnamed-chunk-21-3.png)
+
+    ## numeric(0)
+
+### Relationship between the St indicator and wild individuals size
+
+    ## quartz_off_screen 
+    ##                 2
