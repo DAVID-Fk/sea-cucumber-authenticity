@@ -16,6 +16,8 @@ Group refers to a more precise grouping of the origin of the sample, wild, captu
 
 SamplingDate refers to the date at which the individual was sacrificed.
 
+IdWeight refers to the fresh weight of the sea cucumber.
+
 Fatty acids are reported as the area of the FID signal correponding to each fatty acid. Fatty acids are annotated in the form Ca.bwc where a refers to the number of carbons, b to the number of double bounds and c to the position of the first double bound from the end of chain.
 
 StdC23 (only in the fatty acids table) refers to the amount of C23 standard added to the sample (in ug).
