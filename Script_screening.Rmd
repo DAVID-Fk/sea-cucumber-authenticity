@@ -57,6 +57,11 @@ allFA=FA[,-c(1:8, which(colnames(FA)=="C23.0"))]
 rownames(allFA)=FA[,1]
 allFA[is.na(allFA)]=0
 
+## Calculate fresh weights of batches
+
+avg=tapply(FA$IdWeight, FA$SplBatch, mean, na.rm=T)
+sd=tapply(FA$IdWeight, FA$SplBatch, sd, na.rm=T)
+  
 ## Percentage table
 prct=allFA/rowSums(allFA)*100
 
