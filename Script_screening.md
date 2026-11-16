@@ -914,7 +914,7 @@ AccuracyFA=1-newTree$cptable[3, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1
 print(AccuracyFA)
 ```
 
-    ## [1] 0.9603175
+    ## [1] 0.9365079
 
 ``` r
 #Model validation
@@ -932,10 +932,10 @@ printcp(newTree) / plotcp(newTree)
     ## 
     ## n= 252 
     ## 
-    ##        CP nsplit rel error  xerror     xstd
-    ## 1 0.45455      0   1.00000 1.00000 0.162280
-    ## 2 0.39394      1   0.54545 0.93939 0.158002
-    ## 3 0.01000      2   0.15152 0.30303 0.093906
+    ##        CP nsplit rel error  xerror    xstd
+    ## 1 0.45455      0   1.00000 1.00000 0.16228
+    ## 2 0.39394      1   0.54545 0.81818 0.14878
+    ## 3 0.01000      2   0.15152 0.48485 0.11730
 
 ![](Script_screening_files/figure-markdown_github/unnamed-chunk-7-3.png)
 
@@ -1113,7 +1113,7 @@ res
     ##                   pair  n          F        R2      p  p_adj
     ## 1 BornCap vs Cap&Caged 36 39.5042833 0.5374419 0.0001 0.0003
     ## 2      BornCap vs Wild 39 51.6846374 0.5827913 0.0001 0.0003
-    ## 3    Cap&Caged vs Wild 27  0.6063139 0.0236783 0.5133 0.5133
+    ## 3    Cap&Caged vs Wild 27  0.6063139 0.0236783 0.5056 0.5056
 
 ``` r
 # Building a PLSDA model with only two modalities
@@ -1308,9 +1308,9 @@ printcp(newTree) / plotcp(newTree)
     ## 
     ## n= 51 
     ## 
-    ##        CP nsplit rel error  xerror   xstd
-    ## 1 0.91667      0  1.000000 1.37500 0.1422
-    ## 2 0.01000      1  0.083333 0.29167 0.1024
+    ##        CP nsplit rel error  xerror    xstd
+    ## 1 0.91667      0  1.000000 1.25000 0.14644
+    ## 2 0.01000      1  0.083333 0.29167 0.10240
 
 ![](Script_screening_files/figure-markdown_github/unnamed-chunk-15-3.png)
 
@@ -1491,7 +1491,7 @@ res
     ##                   pair  n         F         R2      p  p_adj
     ## 1 BornCap vs Cap&Caged 43  8.566008 0.17282021 0.0014 0.0028
     ## 2      BornCap vs Wild 60 13.308339 0.18663090 0.0001 0.0003
-    ## 3    Cap&Caged vs Wild 43  3.644796 0.08163989 0.0061 0.0061
+    ## 3    Cap&Caged vs Wild 43  3.644796 0.08163989 0.0070 0.0070
 
 ``` r
 # Building a PLSDA model with only two modalities
@@ -1702,5 +1702,4 @@ printcp(newTree) / plotcp(newTree)
 
 ### Relationship between the St indicator and wild individuals size
 
-    ## quartz_off_screen 
-    ##                 2
+<img src="Script_screening_files/figure-markdown_github/unnamed-chunk-22-1.png" style="display: block; margin: auto;" />

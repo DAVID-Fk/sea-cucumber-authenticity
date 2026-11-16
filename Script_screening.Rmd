@@ -842,7 +842,7 @@ printcp(newTree) / plotcp(newTree)
 
 ```{r echo=FALSE, fig.width=13, fig.height=5, fig.align="center"}
 
-pdf(file="FigS1d.pdf", width=13, height=5)
+#pdf(file="FigS1d.pdf", width=13, height=5)
 
 par(las=1, mar=c(5,6,1,2), mfrow=c(1,2))
 
@@ -852,7 +852,7 @@ boxplot(indSt~St$Group, ylim=c(0,17), names=c("Born in captivity", "Captured and
 plot(St$IdWeight, indSt, ylim=c(0,17), xlim=c(0,350) , col="grey40", pch=21, bg="white", bty="n", xlab="Wild individuals weight (g)", ylab=expression(frac(paste(C[29],H[46]), "Stigmasta,3-5,diene")))
 legend("bottomleft" , legend=paste("n =", length(which(is.na(St$IdWeigh)=="FALSE"))), bty="n")
 
-dev.off()
+#dev.off()
 
 ```
 
