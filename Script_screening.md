@@ -1,6 +1,6 @@
 ### R Markdown
 
-This R Markdown document is made to support the findings of the paper "A screening of tools to differentiate wild vs. farmed sea cucumbers in multi-trophic aquaculture systems with no artificial feed inputs" by David et al. (2026).
+This R Markdown document is made to support the findings of the paper "A screening of tools to differentiate wild vs. farmed sea cucumbers in multi-trophic aquaculture systems" by David et al. (2027).
 
 Preparing the toolbox
 ---------------------
@@ -914,7 +914,7 @@ AccuracyFA=1-newTree$cptable[3, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1
 print(AccuracyFA)
 ```
 
-    ## [1] 0.9365079
+    ## [1] 0.952381
 
 ``` r
 #Model validation
@@ -934,8 +934,8 @@ printcp(newTree) / plotcp(newTree)
     ## 
     ##        CP nsplit rel error  xerror    xstd
     ## 1 0.45455      0   1.00000 1.00000 0.16228
-    ## 2 0.39394      1   0.54545 0.81818 0.14878
-    ## 3 0.01000      2   0.15152 0.48485 0.11730
+    ## 2 0.39394      1   0.54545 0.93939 0.15800
+    ## 3 0.01000      2   0.15152 0.36364 0.10244
 
 ![](Script_screening_files/figure-markdown_github/unnamed-chunk-7-3.png)
 
@@ -1113,7 +1113,7 @@ res
     ##                   pair  n          F        R2      p  p_adj
     ## 1 BornCap vs Cap&Caged 36 39.5042833 0.5374419 0.0001 0.0003
     ## 2      BornCap vs Wild 39 51.6846374 0.5827913 0.0001 0.0003
-    ## 3    Cap&Caged vs Wild 27  0.6063139 0.0236783 0.5056 0.5056
+    ## 3    Cap&Caged vs Wild 27  0.6063139 0.0236783 0.5088 0.5088
 
 ``` r
 # Building a PLSDA model with only two modalities
@@ -1290,7 +1290,7 @@ AccuracyAA=1-newTree$cptable[2, "xerror"]*newTree$frame$dev[1]/newTree$frame$n[1
 print(AccuracyAA)
 ```
 
-    ## [1] 0.8627451
+    ## [1] 0.8823529
 
 ``` r
 #Model validation
@@ -1308,9 +1308,9 @@ printcp(newTree) / plotcp(newTree)
     ## 
     ## n= 51 
     ## 
-    ##        CP nsplit rel error  xerror    xstd
-    ## 1 0.91667      0  1.000000 1.25000 0.14644
-    ## 2 0.01000      1  0.083333 0.29167 0.10240
+    ##        CP nsplit rel error xerror     xstd
+    ## 1 0.91667      0  1.000000 1.4583 0.138069
+    ## 2 0.01000      1  0.083333 0.2500 0.095871
 
 ![](Script_screening_files/figure-markdown_github/unnamed-chunk-15-3.png)
 
@@ -1491,7 +1491,7 @@ res
     ##                   pair  n         F         R2      p  p_adj
     ## 1 BornCap vs Cap&Caged 43  8.566008 0.17282021 0.0014 0.0028
     ## 2      BornCap vs Wild 60 13.308339 0.18663090 0.0001 0.0003
-    ## 3    Cap&Caged vs Wild 43  3.644796 0.08163989 0.0070 0.0070
+    ## 3    Cap&Caged vs Wild 43  3.644796 0.08163989 0.0038 0.0038
 
 ``` r
 # Building a PLSDA model with only two modalities

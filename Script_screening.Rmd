@@ -14,7 +14,7 @@ Sys.setlocale("LC_TIME", "C")
 
 ### R Markdown
 
-This R Markdown document is made to support the findings of the paper "A screening of tools to differentiate wild vs. farmed sea cucumbers in multi-trophic aquaculture systems with no artificial feed inputs" by David et al. (2026). 
+This R Markdown document is made to support the findings of the paper "A screening of tools to differentiate wild vs. farmed sea cucumbers in multi-trophic aquaculture systems" by David et al. (2027). 
 
 
 ## Preparing the toolbox
